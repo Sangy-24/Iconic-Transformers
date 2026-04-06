@@ -2,12 +2,22 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import io
-import json
+import os
+from groq import Groq
+from dotenv import load_dotenv
 
+# Existing ML imports
 from models.predictive_maintenance import predict_health, FEATURES
 from models.demand_forecasting import generate_forecast
 
+# Load environment variables for the API Key
+load_dotenv()
+
 app = FastAPI(title="Iconic Transformers ML API")
+
+# Initialize Groq Client
+# Ensure GROQ_API_KEY is in your .env file
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +45,8 @@ def _resolve_first_column(columns, aliases):
             return alias
     return None
 
+# --- ALL ML LOGIC REMAINS UNTOUCHED ---
+
 @app.post("/predict-maintenance")
 async def predict_maintenance(file: UploadFile = File(...)):
     if not file.filename.endswith('.csv'):
@@ -47,7 +59,6 @@ async def predict_maintenance(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not read CSV: {str(e)}")
 
-    # Validate required telemetry columns so different files truly affect predictions
     missing_cols = [col for col in FEATURES if col not in df.columns]
     if missing_cols:
         raise HTTPException(
@@ -57,10 +68,7 @@ async def predict_maintenance(file: UploadFile = File(...)):
         )
     
     try:
-        # Run random forest model
         results = predict_health(df)
-
-        # Derive a simple aggregate risk level from all rows
         risk_level = "Low"
         if any("Critical" in r for r in results):
             risk_level = "High"
@@ -118,9 +126,7 @@ async def forecast_demand(file: UploadFile = File(...), product_id: str = Form(N
             if product_name_col and not filtered_df.empty:
                 selected_product["product_name"] = str(filtered_df[product_name_col].iloc[0])
 
-        # Run forecasting model on uploaded (and possibly product-filtered) history
         result_df = generate_forecast(history_df=filtered_df, periods=12)
-        # Convert datetime to string for JSON serialization
         result_df['ds'] = result_df['ds'].dt.strftime('%Y-%m-%d')
 
         first_val = float(result_df["yhat"].iloc[0])
@@ -185,13 +191,35 @@ async def forecast_demand_products(file: UploadFile = File(...)):
         "products": products,
     }
 
+# --- UPDATED CHATBOT ENDPOINT ---
 @app.post("/chatbot")
 async def chat(request: dict):
     query = request.get("query", "")
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
     
-    return {
-        "status": "success",
-        "response": f"This is an automated response to your query regarding: '{query}'. Our team will review this if you need further assistance."
-    }
+    try:
+        # Call the Groq AI model (Llama 3.3)
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert electrical assistant for Iconic Transformers. Provide professional and helpful advice on industrial transformers and maintenance."
+                },
+                {
+                    "role": "user",
+                    "content": query,
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+        )
+        return {
+            "status": "success", 
+            "response": chat_completion.choices[0].message.content
+        }
+    except Exception as e:
+        # Handle API errors gracefully
+        return {
+            "status": "error",
+            "response": f"AI service error: {str(e)}"
+        }
