@@ -55,12 +55,16 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Connect DB
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => console.log('Failed to connect to MongoDB', err));
+mongoose.connect(MONGO_URI, {
+  family: 4   // 🔥 fixes Atlas DNS issue on Windows
+})
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch((err) => console.log('❌ Failed to connect to MongoDB:', err));
 
 app.get('/', (req, res) => {
-  res.send('Iconic Transformers API running...');
+  res.send('🚀 Iconic Transformers API running...');
 });
 
-app.listen(PORT, () => console.log(`Backend server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🔥 Backend server running on port ${PORT}`);
+});
